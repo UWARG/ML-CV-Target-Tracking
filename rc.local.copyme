@@ -4,6 +4,6 @@
 # Airside System
 TIME="$(date +%s)"
 touch /home/warg/record_$TIME.log  # To confirm script has run
-cd /home/warg/computer-vision-python/
+cd /home/warg/ML-CV-Target-Tracking/
 source venv/bin/activate
-python -m main_2023
+python -m main_2025

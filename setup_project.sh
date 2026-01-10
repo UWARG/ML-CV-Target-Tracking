@@ -8,7 +8,6 @@ source ./venv/bin/activate
 if [ $? -eq 0 ]; then
     echo "Installing project dependencies..."
     pip install -r requirements.txt
-    pip install -r requirements-pytorch.txt
 
     echo ""
     echo "Installing submodules and their dependencies..."

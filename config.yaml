@@ -1,4 +1,5 @@
 # Global constants for main with CUDA
+#copied from old repo, may need update
 
 queue_max_size: 10
 log_timings: false # Enable logging of setup and iteration times of workers

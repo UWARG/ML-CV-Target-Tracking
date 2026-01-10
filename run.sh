@@ -1,4 +1,4 @@
 #!/bin/bash
-cd /home/warg/computer-vision-python
+cd /home/warg/ML-CV-Target-Tracking/
 source venv/bin/activate
-python main_2023.py
+python main_2025.py
