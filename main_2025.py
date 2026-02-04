@@ -1,8 +1,8 @@
 """
 for target tracking
 """
-import pathlib
 
+import pathlib
 
 
 CONFIG_FILE_PATH = pathlib.Path("config.yaml")
