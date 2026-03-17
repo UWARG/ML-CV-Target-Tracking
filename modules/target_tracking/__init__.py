@@ -1,0 +1,1 @@
+from .depthai_detector import DepthAIDetector
