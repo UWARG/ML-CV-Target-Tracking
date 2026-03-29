@@ -69,7 +69,7 @@ Script to evaluate velocity command formulation and output against targets.
 * **[test_read_yaml.py](../../modules/common/tests/unit/test_read_yaml.py)**
   - Tests whether the global `read_yaml` configurator accesses configuration items or safely flags `test_open_config_file_not_found`.
 * **[test_hitl_inject_position.py](../../modules/common/tests/unit/test_hitl_inject_position.py)**
-  - Tests injecting random coordinate streams effectively into the Harware-In-The-Loop (HITL) setup loop printed functionally to console mechanisms.
+  - Tests injecting random coordinate streams effectively into the Hardware-In-The-Loop (HITL) setup loop printed functionally to console mechanisms.
 
 ---
 
