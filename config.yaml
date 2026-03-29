@@ -88,10 +88,9 @@ auto_landing:
     enabled: true
 
 spatial_detection:
-    # Path to a custom .blob model file for OAK-D.
-    # Set to null to auto-download the default YOLOv4-tiny (416x416, COCO 80 classes).
-    # To use a custom model: train with YOLO, export to ONNX, convert via blobconverter.
-    model_path: null
+    # Path to the .blob model file for OAK-D (required).
+    # Train with YOLO, export to ONNX, convert via tools.luxonis.com/model-conversion.
+    model_path: "models/yolov4-tiny-coco-416x416.blob"
     confidence_threshold: 0.5
     iou_threshold: 0.5
     depth_lower_mm: 100    # Ignore detections closer than this (mm)

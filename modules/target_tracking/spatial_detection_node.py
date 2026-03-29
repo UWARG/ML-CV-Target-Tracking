@@ -4,7 +4,6 @@ Integrates the stereo depth node with YOLO for 3D object localization.
 """
 
 import depthai as dai
-import blobconverter
 
 
 # YOLOv4-tiny input resolution (must match model training size)
@@ -31,7 +30,7 @@ DEPTH_UPPER_THRESHOLD_MM = 10000
 def create_spatial_detection_network(
     pipeline: dai.Pipeline,
     stereo: dai.node.StereoDepth,
-    model_path: str = None,
+    model_path: str,
 ) -> "tuple[dai.node.YoloSpatialDetectionNetwork, dai.node.ColorCamera]":
     """
     Creates the YoloSpatialDetectionNetwork and links it with stereo depth + color camera.
@@ -43,8 +42,7 @@ def create_spatial_detection_network(
     Args:
         pipeline: The DepthAI pipeline object.
         stereo: Configured StereoDepth node (from stereo_node.py, depth aligned to RGB).
-        model_path: Path to a custom .blob model file.
-                    If None, downloads the default YOLOv4-tiny from the DepthAI model zoo.
+        model_path: Path to the .blob model file. Set via spatial_detection.model_path in config.yaml.
 
     Returns:
         Tuple of (spatial_detection_network, color_camera) nodes.
@@ -59,13 +57,7 @@ def create_spatial_detection_network(
     # --- 2. Spatial Detection Network ---
     spatial_detection = pipeline.create(dai.node.YoloSpatialDetectionNetwork)
 
-    # Load blob model (download default if no custom path given)
-    if model_path is None:
-        blob_path = blobconverter.from_zoo(name="yolo-v4-tiny-tf", shaves=6)
-    else:
-        blob_path = model_path
-
-    spatial_detection.setBlobPath(blob_path)
+    spatial_detection.setBlobPath(model_path)
 
     # Detection settings
     spatial_detection.setConfidenceThreshold(CONFIDENCE_THRESHOLD)
