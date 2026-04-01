@@ -1,5 +1,6 @@
 """
-for target tracking
+Target tracking pipeline for OAK-D.
+Runs YOLOv4-tiny spatial detection + object tracking on-device.
 """
 
 import pathlib
@@ -14,55 +15,36 @@ from modules.target_tracking.object_tracker_node import create_object_tracker
 
 
 CONFIG_FILE_PATH = pathlib.Path("config.yaml")
-
-# Queue settings
 OUTPUT_QUEUE_SIZE = 4
 
 
 def main() -> int:
-    """Main function for target tracking pipeline."""
     with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as config_file:
         config = yaml.safe_load(config_file)
 
-    model_path: str = config["spatial_detection"]["model_path"]
+    model_name: str = config["spatial_detection"]["model_name"]
 
-    pipeline = dai.Pipeline()
+    with dai.Pipeline() as pipeline:
+        stereo = create_stereo_depth(pipeline)
+        spatial_detection = create_spatial_detection_network(pipeline, stereo, model_name)
+        tracker = create_object_tracker(pipeline, spatial_detection)
 
-    # 1. Stereo Depth Node (mono cams → depth aligned to RGB)
-    stereo = create_stereo_depth(pipeline)
+        tracklet_queue = tracker.out.createOutputQueue(maxSize=OUTPUT_QUEUE_SIZE, blocking=False)
+        preview_queue = tracker.passthroughTrackerFrame.createOutputQueue(
+            maxSize=OUTPUT_QUEUE_SIZE, blocking=False
+        )
 
-    # 2. Spatial Detection Network (RGB cam + stereo depth → 3D detections)
-    spatial_detection, color_cam = create_spatial_detection_network(pipeline, stereo, model_path)
-
-    # 3. Object Tracker (detections → tracked targets with persistent IDs)
-    tracker = create_object_tracker(pipeline, spatial_detection)
-
-    # --- Output XLinks ---
-    xout_tracker = pipeline.create(dai.node.XLinkOut)
-    xout_tracker.setStreamName("tracklets")
-    tracker.out.link(xout_tracker.input)
-
-    # Link preview (same 416x416 frame the NN ran on) so bbox coords align
-    xout_rgb = pipeline.create(dai.node.XLinkOut)
-    xout_rgb.setStreamName("rgb")
-    color_cam.preview.link(xout_rgb.input)
-
-    with dai.Device(pipeline) as device:
-        tracklet_queue = device.getOutputQueue("tracklets", maxSize=OUTPUT_QUEUE_SIZE, blocking=False)
-        rgb_queue = device.getOutputQueue("rgb", maxSize=OUTPUT_QUEUE_SIZE, blocking=False)
-
-        print("Pipeline started. Tracking humans (COCO class 0)...")
-
-        while True:
+        pipeline.start()
+        while pipeline.isRunning():
             tracklets_msg = tracklet_queue.get()
-            frame_msg = rgb_queue.tryGet()
-            frame = frame_msg.getCvFrame() if frame_msg is not None else None
+            frame_msg = preview_queue.get()
+            frame = frame_msg.getCvFrame()
 
             for tracklet in tracklets_msg.tracklets:
                 if tracklet.status != dai.Tracklet.TrackingStatus.TRACKED:
                     continue
 
-                roi = tracklet.roi.denormalize(tracklets_msg.getWidth(), tracklets_msg.getHeight())
+                roi = tracklet.roi.denormalize(frame.shape[1], frame.shape[0])
                 x_mm = tracklet.spatialCoordinates.x
                 y_mm = tracklet.spatialCoordinates.y
                 z_mm = tracklet.spatialCoordinates.z
@@ -74,28 +56,26 @@ def main() -> int:
                     f"{int(roi.bottomRight().x)}, {int(roi.bottomRight().y)})"
                 )
 
-                if frame is not None:
-                    cv2.rectangle(
-                        frame,
-                        (int(roi.topLeft().x), int(roi.topLeft().y)),
-                        (int(roi.bottomRight().x), int(roi.bottomRight().y)),
-                        (0, 255, 0),
-                        2,
-                    )
-                    cv2.putText(
-                        frame,
-                        f"ID {tracklet.id} | {z_mm:.0f}mm",
-                        (int(roi.topLeft().x), int(roi.topLeft().y) - 8),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5,
-                        (0, 255, 0),
-                        1,
-                    )
+                cv2.rectangle(
+                    frame,
+                    (int(roi.topLeft().x), int(roi.topLeft().y)),
+                    (int(roi.bottomRight().x), int(roi.bottomRight().y)),
+                    (0, 255, 0),
+                    2,
+                )
+                cv2.putText(
+                    frame,
+                    f"ID {tracklet.id} | {z_mm:.0f}mm",
+                    (int(roi.topLeft().x), int(roi.topLeft().y) - 8),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (0, 255, 0),
+                    1,
+                )
 
-            if frame is not None:
-                cv2.imshow("Target Tracking", frame)
-                if cv2.waitKey(1) == ord("q"):
-                    break
+            cv2.imshow("Target Tracking", frame)
+            if cv2.waitKey(1) == ord("q"):
+                break
 
     return 0
 
