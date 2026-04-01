@@ -18,17 +18,14 @@ ASSIGNMENT_POLICY = dai.TrackerIdAssignmentPolicy.SMALLEST_ID
 
 def create_object_tracker(
     pipeline: dai.Pipeline,
-    spatial_detection: dai.node.YoloSpatialDetectionNetwork,
+    spatial_detection: dai.node.SpatialDetectionNetwork,
 ) -> dai.node.ObjectTracker:
     """
     Creates the ObjectTracker node and links it to the spatial detection network.
 
-    The tracker receives detection frames and bounding boxes from the spatial detection
-    network, then assigns persistent IDs to each target across frames.
-
     Args:
         pipeline: The DepthAI pipeline object.
-        spatial_detection: The configured YoloSpatialDetectionNetwork node.
+        spatial_detection: The configured SpatialDetectionNetwork node.
 
     Returns:
         Configured ObjectTracker node.
@@ -40,7 +37,6 @@ def create_object_tracker(
     tracker.setTrackerType(TRACKER_TYPE)
     tracker.setTrackerIdAssignmentPolicy(ASSIGNMENT_POLICY)
 
-    # Link spatial detection outputs → tracker inputs
     # passthrough provides the preview frame used to extract appearance features
     spatial_detection.passthrough.link(tracker.inputTrackerFrame)
     spatial_detection.passthrough.link(tracker.inputDetectionFrame)

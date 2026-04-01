@@ -1,6 +1,6 @@
 # Runtime dependencies for target tracking pipeline
 
-depthai>=2.24.0
+depthai>=3.5.0
 opencv-python>=4.9.0
 pymavlink>=2.4.40
 pyyaml>=6.0
