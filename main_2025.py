@@ -19,6 +19,7 @@ OUTPUT_QUEUE_SIZE = 4
 
 
 def main() -> int:
+    """Run the OAK-D target tracking pipeline."""
     with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as config_file:
         config = yaml.safe_load(config_file)
 
