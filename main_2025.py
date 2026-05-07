@@ -17,6 +17,13 @@ from modules.target_tracking.object_tracker_node import create_object_tracker
 CONFIG_FILE_PATH = pathlib.Path("config.yaml")
 OUTPUT_QUEUE_SIZE = 4
 
+# Calibration offsets (mm) — subtracted from raw z to correct systematic overestimate.
+# Measured bias: +27mm at close range (<750mm), +74mm at long range (>=750mm).
+# Tune these values if the camera or mounting changes.
+Z_CALIBRATION_OFFSET_CLOSE_MM = 27   # for z < 750mm  (~0.5m range)
+Z_CALIBRATION_OFFSET_FAR_MM   = 74   # for z >= 750mm (~1.0m+ range)
+Z_CALIBRATION_THRESHOLD_MM    = 750  # boundary between close and far
+
 
 def main() -> int:
     """Run the OAK-D target tracking pipeline."""
@@ -48,7 +55,9 @@ def main() -> int:
                 roi = tracklet.roi.denormalize(frame.shape[1], frame.shape[0])
                 x_mm = tracklet.spatialCoordinates.x
                 y_mm = tracklet.spatialCoordinates.y
-                z_mm = tracklet.spatialCoordinates.z
+                raw_z = tracklet.spatialCoordinates.z
+                offset = Z_CALIBRATION_OFFSET_CLOSE_MM if raw_z < Z_CALIBRATION_THRESHOLD_MM else Z_CALIBRATION_OFFSET_FAR_MM
+                z_mm = raw_z - offset
 
                 print(
                     f"Target ID {tracklet.id}: "
