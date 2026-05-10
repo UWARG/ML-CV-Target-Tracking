@@ -13,7 +13,6 @@ from modules.target_tracking.stereo_node import create_stereo_depth
 from modules.target_tracking.spatial_detection_node import create_spatial_detection_network
 from modules.target_tracking.object_tracker_node import create_object_tracker
 
-
 CONFIG_FILE_PATH = pathlib.Path("config.yaml")
 OUTPUT_QUEUE_SIZE = 4
 
@@ -22,11 +21,11 @@ OUTPUT_QUEUE_SIZE = 4
 # Beyond the last anchor the raw camera value is trusted as-is.
 # See documentation/accuracy/calibration.png for the fit visualization.
 Z_CALIBRATION_ANCHORS = (
-    (527.0,   27.5),   # 0.5m
-    (1075.0,  75.1),   # 1.0m
-    (1573.0,  73.2),   # 1.5m
-    (1951.0, -48.7),   # 2.0m
-    (2200.0,   0.0),   # taper end — trust factory beyond this
+    (527.0, 27.5),  # 0.5m
+    (1075.0, 75.1),  # 1.0m
+    (1573.0, 73.2),  # 1.5m
+    (1951.0, -48.7),  # 2.0m
+    (2200.0, 0.0),  # taper end — trust factory beyond this
 )
 
 
