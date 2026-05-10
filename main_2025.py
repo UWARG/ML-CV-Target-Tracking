@@ -17,12 +17,30 @@ from modules.target_tracking.object_tracker_node import create_object_tracker
 CONFIG_FILE_PATH = pathlib.Path("config.yaml")
 OUTPUT_QUEUE_SIZE = 4
 
-# Calibration offsets (mm) — subtracted from raw z to correct systematic overestimate.
-# Measured bias: +27mm at close range (<750mm), +74mm at long range (>=750mm).
-# Tune these values if the camera or mounting changes.
-Z_CALIBRATION_OFFSET_CLOSE_MM = 27   # for z < 750mm  (~0.5m range)
-Z_CALIBRATION_OFFSET_FAR_MM   = 74   # for z >= 750mm (~1.0m+ range)
-Z_CALIBRATION_THRESHOLD_MM    = 750  # boundary between close and far
+# Z-bias calibration anchors: (raw_z_mm, offset_mm_to_subtract).
+# Measured at 0.5/1.0/1.5/2.0m; final (2200, 0) tapers smoothly to factory calibration.
+# Beyond the last anchor the raw camera value is trusted as-is.
+# See documentation/accuracy/calibration.png for the fit visualization.
+Z_CALIBRATION_ANCHORS = (
+    (527.0,   27.5),   # 0.5m
+    (1075.0,  75.1),   # 1.0m
+    (1573.0,  73.2),   # 1.5m
+    (1951.0, -48.7),   # 2.0m
+    (2200.0,   0.0),   # taper end — trust factory beyond this
+)
+
+
+def calibrate_z(raw_z: float) -> float:
+    """Apply piecewise-linear bias correction to a raw stereo-depth z value (mm)."""
+    if raw_z <= Z_CALIBRATION_ANCHORS[0][0]:
+        return raw_z - Z_CALIBRATION_ANCHORS[0][1]
+    if raw_z >= Z_CALIBRATION_ANCHORS[-1][0]:
+        return raw_z
+    for (z0, o0), (z1, o1) in zip(Z_CALIBRATION_ANCHORS, Z_CALIBRATION_ANCHORS[1:]):
+        if z0 <= raw_z <= z1:
+            t = (raw_z - z0) / (z1 - z0)
+            return raw_z - (o0 + t * (o1 - o0))
+    return raw_z
 
 
 def main() -> int:
@@ -55,9 +73,7 @@ def main() -> int:
                 roi = tracklet.roi.denormalize(frame.shape[1], frame.shape[0])
                 x_mm = tracklet.spatialCoordinates.x
                 y_mm = tracklet.spatialCoordinates.y
-                raw_z = tracklet.spatialCoordinates.z
-                offset = Z_CALIBRATION_OFFSET_CLOSE_MM if raw_z < Z_CALIBRATION_THRESHOLD_MM else Z_CALIBRATION_OFFSET_FAR_MM
-                z_mm = raw_z - offset
+                z_mm = calibrate_z(tracklet.spatialCoordinates.z)
 
                 print(
                     f"Target ID {tracklet.id}: "
