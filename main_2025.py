@@ -29,6 +29,44 @@ Z_CALIBRATION_ANCHORS = (
 )
 
 
+def calculate_velocity_commands(target_x_m, target_y_m, target_z_m):
+    desired_z = 2.0  # Stop 2 meters away
+    desired_x = 0.0  # Center horizontally
+
+    kp_z = 0.5
+    kp_x = 0.5
+
+    error_z = target_z_m - desired_z
+    error_x = target_x_m - desired_x
+
+    vx = max(-2.0, min(2.0, kp_z * error_z))  # Forward/Back
+    vy = max(-2.0, min(2.0, kp_x * error_x))  # Left/Right
+
+    return vx, vy, 0.0, 0.0
+
+
+def send_velocity_command(master, vx, vy, vz, yaw_rate):
+    type_mask = 0b010111000111
+    master.mav.set_position_target_local_ned_send(
+        0,
+        master.target_system,
+        master.target_component,
+        mavutil.mavlink.MAV_FRAME_BODY_NED,
+        type_mask,
+        0,
+        0,
+        0,
+        vx,
+        vy,
+        vz,
+        0,
+        0,
+        0,
+        0,
+        yaw_rate,
+    )
+
+
 def calibrate_z(raw_z: float) -> float:
     """Apply piecewise-linear bias correction to a raw stereo-depth z value (mm)."""
     if raw_z <= Z_CALIBRATION_ANCHORS[0][0]:
