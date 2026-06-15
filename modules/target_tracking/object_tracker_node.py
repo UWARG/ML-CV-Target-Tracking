@@ -36,6 +36,7 @@ def create_object_tracker(
     tracker.setDetectionLabelsToTrack([PERSON_CLASS_ID])
     tracker.setTrackerType(TRACKER_TYPE)
     tracker.setTrackerIdAssignmentPolicy(ASSIGNMENT_POLICY)
+    tracker.setRunOnHost(True)
 
     # passthrough provides the preview frame used to extract appearance features
     spatial_detection.passthrough.link(tracker.inputTrackerFrame)

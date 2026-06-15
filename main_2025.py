@@ -17,15 +17,15 @@ CONFIG_FILE_PATH = pathlib.Path("config.yaml")
 OUTPUT_QUEUE_SIZE = 4
 
 # Z-bias calibration anchors: (raw_z_mm, offset_mm_to_subtract).
-# Measured at 0.5/1.0/1.5/2.0m; final (2200, 0) tapers smoothly to factory calibration.
+# Measured at 0.5/1.0/1.5/2.0/2.5m; final anchor tapers smoothly to factory calibration.
 # Beyond the last anchor the raw camera value is trusted as-is.
-# See documentation/accuracy/calibration.png for the fit visualization.
 Z_CALIBRATION_ANCHORS = (
-    (527.0, 27.5),  # 0.5m
-    (1075.0, 75.1),  # 1.0m
-    (1573.0, 73.2),  # 1.5m
-    (1951.0, -48.7),  # 2.0m
-    (2200.0, 0.0),  # taper end — trust factory beyond this
+    (527.5, 27.5),  # 0.5m
+    (1075.1, 75.1),  # 1.0m
+    (1573.2, 73.2),  # 1.5m
+    (1893.1, -106.9),  # 2.0m
+    (2599.2, 99.2),  # 2.5m
+    (2800.0, 0.0),  # taper end — trust factory beyond this
 )
 
 
