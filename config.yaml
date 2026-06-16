@@ -86,3 +86,13 @@ communications:
 
 auto_landing:
     enabled: true
+
+spatial_detection:
+    # Luxonis model zoo name. Auto-downloaded on first run, cached after.
+    model_name: "yolov6-nano"
+    confidence_threshold: 0.5
+    depth_lower_mm: 100    # Ignore detections closer than this (mm)
+    depth_upper_mm: 10000  # Ignore detections farther than this (mm)
+
+object_tracker:
+    target_class_id: 0  # COCO class 0 = person
