@@ -3,7 +3,11 @@ Target tracking pipeline for OAK-D.
 Runs YOLOv4-tiny spatial detection + object tracking on-device.
 """
 
+import argparse
+import contextlib
+import csv
 import pathlib
+import time
 
 import cv2
 import depthai as dai
@@ -15,6 +19,22 @@ from modules.target_tracking.object_tracker_node import create_object_tracker
 
 CONFIG_FILE_PATH = pathlib.Path("config.yaml")
 OUTPUT_QUEUE_SIZE = 4
+
+# Columns for the accuracy-test CSV (enabled with --log). Ground-truth columns hold the
+# ruler-measured target position; raw_* are straight from the device; cal_* are corrected.
+LOG_FIELDNAMES = (
+    "timestamp",
+    "gt_x_mm",
+    "gt_y_mm",
+    "gt_z_mm",
+    "target_id",
+    "raw_x_mm",
+    "raw_y_mm",
+    "raw_z_mm",
+    "cal_x_mm",
+    "cal_y_mm",
+    "cal_z_mm",
+)
 
 # Z-bias calibration anchors: (raw_z_mm, offset_mm_to_subtract).
 # Measured at 0.5/1.0/1.5/2.0m; final (2200, 0) tapers smoothly to factory calibration.
@@ -42,65 +62,161 @@ def calibrate_z(raw_z: float) -> float:
     return raw_z
 
 
+def calibrate_xy(raw_x: float, raw_y: float, raw_z: float, cal_z: float) -> tuple[float, float]:
+    """Scale raw X/Y by the depth-correction ratio.
+
+    The device computes X = raw_z * (u - cx) / fx (and similarly Y), so X and Y are linear in
+    the raw depth. Once Z is corrected, X and Y are corrected by the same ratio cal_z / raw_z.
+    Returns the raw values unchanged when raw_z is 0 (no valid depth).
+    """
+    if raw_z == 0:
+        return raw_x, raw_y
+    ratio = cal_z / raw_z
+    return raw_x * ratio, raw_y * ratio
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for optional accuracy logging."""
+    parser = argparse.ArgumentParser(description="OAK-D target tracking pipeline.")
+    parser.add_argument(
+        "--log",
+        type=pathlib.Path,
+        default=None,
+        help="Append per-frame XYZ rows to this CSV (header written if new). Omit to disable.",
+    )
+    parser.add_argument(
+        "--gt-x", type=float, default=0.0, help="Ground-truth target X in mm (default 0)."
+    )
+    parser.add_argument(
+        "--gt-y", type=float, default=0.0, help="Ground-truth target Y in mm (default 0)."
+    )
+    parser.add_argument(
+        "--gt-z", type=float, default=0.0, help="Ground-truth target Z in mm (default 0)."
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
     """Run the OAK-D target tracking pipeline."""
+    args = parse_args()
+
     with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as config_file:
         config = yaml.safe_load(config_file)
 
     model_name: str = config["spatial_detection"]["model_name"]
 
-    with dai.Pipeline() as pipeline:
-        stereo = create_stereo_depth(pipeline)
-        spatial_detection = create_spatial_detection_network(pipeline, stereo, model_name)
-        tracker = create_object_tracker(pipeline, spatial_detection)
+    with contextlib.ExitStack() as stack:
+        log_writer = None
+        if args.log is not None:
+            is_new = not args.log.exists() or args.log.stat().st_size == 0
+            args.log.parent.mkdir(parents=True, exist_ok=True)
+            log_file = stack.enter_context(open(args.log, "a", newline="", encoding="utf-8"))
+            log_writer = csv.writer(log_file)
+            if is_new:
+                log_writer.writerow(LOG_FIELDNAMES)
+            print(
+                f"Logging XYZ to {args.log} "
+                f"(ground truth x={args.gt_x:.0f}mm, y={args.gt_y:.0f}mm, z={args.gt_z:.0f}mm)"
+            )
 
-        tracklet_queue = tracker.out.createOutputQueue(maxSize=OUTPUT_QUEUE_SIZE, blocking=False)
-        preview_queue = tracker.passthroughTrackerFrame.createOutputQueue(
-            maxSize=OUTPUT_QUEUE_SIZE, blocking=False
-        )
+        with dai.Pipeline() as pipeline:
+            stereo = create_stereo_depth(pipeline)
+            spatial_detection = create_spatial_detection_network(pipeline, stereo, model_name)
+            tracker = create_object_tracker(pipeline, spatial_detection)
 
-        pipeline.start()
-        while pipeline.isRunning():
-            tracklets_msg = tracklet_queue.get()
-            frame_msg = preview_queue.get()
-            frame = frame_msg.getCvFrame()
+            tracklet_queue = tracker.out.createOutputQueue(
+                maxSize=OUTPUT_QUEUE_SIZE, blocking=False
+            )
+            preview_queue = tracker.passthroughTrackerFrame.createOutputQueue(
+                maxSize=OUTPUT_QUEUE_SIZE, blocking=False
+            )
 
-            for tracklet in tracklets_msg.tracklets:
-                if tracklet.status != dai.Tracklet.TrackingStatus.TRACKED:
-                    continue
+            pipeline.start()
+            recording = False
+            while pipeline.isRunning():
+                tracklets_msg = tracklet_queue.get()
+                frame_msg = preview_queue.get()
+                frame = frame_msg.getCvFrame()
 
-                roi = tracklet.roi.denormalize(frame.shape[1], frame.shape[0])
-                x_mm = tracklet.spatialCoordinates.x
-                y_mm = tracklet.spatialCoordinates.y
-                z_mm = calibrate_z(tracklet.spatialCoordinates.z)
+                tracked = [
+                    t
+                    for t in tracklets_msg.tracklets
+                    if t.status == dai.Tracklet.TrackingStatus.TRACKED
+                ]
+                # Log only while recording is armed (press 'r') AND exactly one person is in
+                # view, so walk-in frames and bystanders can never contaminate a session.
+                can_log = log_writer is not None and recording and len(tracked) == 1
 
-                print(
-                    f"Target ID {tracklet.id}: "
-                    f"xyz=({x_mm:.0f}mm, {y_mm:.0f}mm, {z_mm:.0f}mm)  "
-                    f"bbox=({int(roi.topLeft().x)}, {int(roi.topLeft().y)}, "
-                    f"{int(roi.bottomRight().x)}, {int(roi.bottomRight().y)})"
-                )
+                for tracklet in tracked:
+                    roi = tracklet.roi.denormalize(frame.shape[1], frame.shape[0])
+                    raw_x = tracklet.spatialCoordinates.x
+                    raw_y = tracklet.spatialCoordinates.y
+                    raw_z = tracklet.spatialCoordinates.z
+                    z_mm = calibrate_z(raw_z)
+                    cal_x, cal_y = calibrate_xy(raw_x, raw_y, raw_z, z_mm)
 
-                cv2.rectangle(
-                    frame,
-                    (int(roi.topLeft().x), int(roi.topLeft().y)),
-                    (int(roi.bottomRight().x), int(roi.bottomRight().y)),
-                    (0, 255, 0),
-                    2,
-                )
-                cv2.putText(
-                    frame,
-                    f"ID {tracklet.id} | {z_mm:.0f}mm",
-                    (int(roi.topLeft().x), int(roi.topLeft().y) - 8),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    (0, 255, 0),
-                    1,
-                )
+                    print(
+                        f"Target ID {tracklet.id}: "
+                        f"xyz=({raw_x:.0f}mm, {raw_y:.0f}mm, {z_mm:.0f}mm)  "
+                        f"bbox=({int(roi.topLeft().x)}, {int(roi.topLeft().y)}, "
+                        f"{int(roi.bottomRight().x)}, {int(roi.bottomRight().y)})"
+                    )
 
-            cv2.imshow("Target Tracking", frame)
-            if cv2.waitKey(1) == ord("q"):
-                break
+                    if can_log:
+                        log_writer.writerow(
+                            (
+                                time.time(),
+                                args.gt_x,
+                                args.gt_y,
+                                args.gt_z,
+                                tracklet.id,
+                                round(raw_x),
+                                round(raw_y),
+                                round(raw_z),
+                                round(cal_x),
+                                round(cal_y),
+                                round(z_mm),
+                            )
+                        )
+
+                    cv2.rectangle(
+                        frame,
+                        (int(roi.topLeft().x), int(roi.topLeft().y)),
+                        (int(roi.bottomRight().x), int(roi.bottomRight().y)),
+                        (0, 255, 0),
+                        2,
+                    )
+                    cv2.putText(
+                        frame,
+                        f"ID{tracklet.id} X{raw_x:.0f} Y{raw_y:.0f} Z{z_mm:.0f}",
+                        (int(roi.topLeft().x), int(roi.topLeft().y) - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        (0, 255, 0),
+                        1,
+                    )
+
+                if log_writer is not None:
+                    if not recording:
+                        banner = f"IDLE - press 'r' to record  (target z={args.gt_z:.0f}mm)"
+                        banner_color = (0, 215, 255)
+                    elif can_log:
+                        banner = f"REC  people:1  (target z={args.gt_z:.0f}mm)"
+                        banner_color = (0, 255, 0)
+                    else:
+                        banner = f"REC PAUSED - need exactly 1 person (people:{len(tracked)})"
+                        banner_color = (0, 0, 255)
+                    cv2.putText(
+                        frame, banner, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, banner_color, 2
+                    )
+
+                cv2.imshow("Target Tracking", frame)
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord("q"):
+                    break
+                if key == ord("r") and log_writer is not None:
+                    recording = not recording
+                    print("RECORDING" if recording else "stopped recording")
 
     return 0
 
